@@ -101,12 +101,9 @@ export class PersonaConversation {
             const headers: Record<string, string> = {
                 'Content-Type': 'application/json',
                 'x-api-key': this.apiKey,
-                'anthropic-version': '2023-06-01'
+                'anthropic-version': '2023-06-01',
+                'anthropic-dangerous-direct-browser-access': 'true'
             };
-
-            if (!isProduction) {
-                headers['anthropic-dangerous-direct-browser-access'] = 'true';
-            }
 
             const response = await fetch(apiUrl, {
                 method: 'POST',
