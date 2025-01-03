@@ -13,5 +13,13 @@ export default defineConfig({
         rewrite: (path) => path
       }
     }
-  }
+  },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: true,
+    copyPublicDir: true,
+  },
+  publicDir: 'public',
+  base: '/aigent-twitter-x/',
 })

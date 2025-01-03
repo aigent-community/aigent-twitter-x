@@ -47,7 +47,7 @@ function App() {
   useEffect(() => {
     const loadPersonas = async () => {
       try {
-        const response = await fetch('/personas-db.json')
+        const response = await fetch('/aigent-twitter-x/personas-db.json')
         if (!response.ok) throw new Error('Failed to load personas')
         const data: PersonasDB = await response.json()
         setPersonas(data.personas)
