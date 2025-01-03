@@ -94,14 +94,23 @@ export class PersonaConversation {
         this.optimizeContext();
 
         try {
-            const response = await fetch('/v1/messages', {
+            const isProduction = window.location.hostname !== 'localhost';
+            const baseUrl = isProduction ? 'https://api.anthropic.com/v1' : '/v1';
+            const apiUrl = `${baseUrl}/messages`;
+            
+            const headers: Record<string, string> = {
+                'Content-Type': 'application/json',
+                'x-api-key': this.apiKey,
+                'anthropic-version': '2023-06-01'
+            };
+
+            if (!isProduction) {
+                headers['anthropic-dangerous-direct-browser-access'] = 'true';
+            }
+
+            const response = await fetch(apiUrl, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': this.apiKey,
-                    'anthropic-version': '2023-06-01',
-                    'anthropic-dangerous-direct-browser-access': 'true'
-                },
+                headers,
                 body: JSON.stringify({
                     model: 'claude-3-5-sonnet-20241022',
                     max_tokens: this.config.reservedTokens,
