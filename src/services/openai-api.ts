@@ -2,7 +2,7 @@ import { Message } from '../types/message';
 import { AIProvider } from '../types/ai-provider';
 import { ConversationConfig } from '../types/conversation-config';
 
-export class AnthropicAPI implements AIProvider {
+export class OpenAIAPI implements AIProvider {
     private apiKey: string;
 
     constructor(apiKey: string) {
@@ -10,28 +10,28 @@ export class AnthropicAPI implements AIProvider {
     }
 
     async sendMessage(messages: Message[], systemPrompt: string, maxTokens: number): Promise<string> {
-        const isProduction = window.location.hostname !== 'localhost';
-        const baseUrl = isProduction ? 'https://api.anthropic.com/v1' : '/v1';
-        const apiUrl = `${baseUrl}/messages`;
+        const apiUrl = 'https://api.openai.com/v1/chat/completions';
         
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
-            'x-api-key': this.apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true'
+            'Authorization': `Bearer ${this.apiKey}`
         };
+
+        const formattedMessages = [
+            { role: 'system', content: systemPrompt },
+            ...messages.slice(1).map(({ role, content }) => ({
+                role: role === 'user' ? 'user' : 'assistant',
+                content
+            }))
+        ];
 
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers,
             body: JSON.stringify({
-                model: 'claude-3-5-sonnet-20241022',
-                max_tokens: maxTokens,
-                system: systemPrompt,
-                messages: messages.slice(1).map(({ role, content }) => ({
-                    role: role === 'user' ? 'user' : 'assistant',
-                    content
-                }))
+                model: 'gpt-4-turbo-preview',
+                messages: formattedMessages,
+                max_tokens: maxTokens
             })
         });
 
@@ -41,11 +41,11 @@ export class AnthropicAPI implements AIProvider {
         }
 
         const data = await response.json();
-        if (!data.content || !Array.isArray(data.content) || !data.content[0]?.text) {
+        if (!data.choices?.[0]?.message?.content) {
             throw new Error('Unexpected API response format');
         }
 
-        return data.content[0].text;
+        return data.choices[0].message.content;
     }
 
     optimizeContext(messages: Message[], config: ConversationConfig): Message[] {
@@ -66,7 +66,7 @@ export class AnthropicAPI implements AIProvider {
             optimizedMessages = [systemMessage, ...recentMessages];
         }
 
-        // Finally, limit by token count
+        // Finally, limit by token count (GPT-4 has a 128k context window)
         while (this.calculateTotalTokens(optimizedMessages) > (config.maxTokens - config.reservedTokens)) {
             if (optimizedMessages.length <= 2) break; // Keep at least system message and one user message
             optimizedMessages.splice(1, 1); // Remove the oldest non-system message
@@ -80,8 +80,9 @@ export class AnthropicAPI implements AIProvider {
     }
 
     estimateTokenCount(text: string): number {
-        // Claude-specific token estimation
+        // GPT-4 specific token estimation
         // Rough estimate: 1 token ≈ 4 characters for English text
+        // Note: This is a simplified estimation. For production, consider using tiktoken
         return Math.ceil(text.length / 4);
     }
-}
+} 
