@@ -21,7 +21,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     env:
-      VITE_ANTHROPIC_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+      VITE_ANTHROPIC_API_KEY: ${{ secrets.VITE_ANTHROPIC_API_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
