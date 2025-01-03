@@ -5,17 +5,11 @@ import { ThemeProvider } from './components/providers/ThemeProvider'
 import { Sidebar } from './components/layout/Sidebar'
 import { ChatContainer } from './components/layout/ChatContainer'
 import { PersonaConfig } from './types/persona-config'
-
-interface Message {
-  content: string
-  isUser: boolean
-  timestamp: Date
-  accountLink?: string
-}
-
-interface PersonasDB {
-  personas: PersonaConfig[]
-}
+import { AnthropicAPI } from './services/anthropic-api'
+import { Message as UIMessage } from './types/ui-message'
+import { Message as ConversationMessage } from './types/message'
+import { APIKeyManager } from './services/api-key-manager'
+import { APIKeyDialog } from './components/ui/api-key-dialog'
 
 const DEFAULT_CONFIG: ConversationConfig = {
   maxTokens: 100000,
@@ -26,7 +20,7 @@ const DEFAULT_CONFIG: ConversationConfig = {
 
 function App() {
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<UIMessage[]>([])
   const [tokenStats, setTokenStats] = useState({ used: 0, remaining: 0 })
   const [personas, setPersonas] = useState<PersonaConfig[]>([])
   const [loading, setLoading] = useState(true)
@@ -36,12 +30,36 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const conversationRef = useRef<PersonaConversation | null>(null)
 
+  // Check for API key on startup
+  useEffect(() => {
+    if (!APIKeyManager.hasKey('anthropic')) {
+      setError('Please set up your API keys to start chatting');
+    }
+  }, []);
+
+  // Convert conversation messages to UI messages
+  const convertToUIMessages = (conversationMessages: ConversationMessage[]): UIMessage[] => {
+    return conversationMessages
+      .filter(msg => msg.role !== 'system')
+      .map(msg => ({
+        content: msg.content,
+        isUser: msg.role === 'user',
+        timestamp: new Date(msg.timestamp || Date.now()),
+        accountLink: msg.role === 'assistant' && selectedAccount ? 
+          `https://twitter.com/${selectedAccount}` : undefined
+      }));
+  };
+
+  const handleKeysChange = () => {
+    setError(APIKeyManager.hasKey('anthropic') ? null : 'Please set up your API keys to start chatting');
+  };
+
   useEffect(() => {
     const loadPersonas = async () => {
       try {
         const response = await fetch('/aigent-twitter-x/personas-db.json')
         if (!response.ok) throw new Error('Failed to load personas')
-        const data: PersonasDB = await response.json()
+        const data: { personas: PersonaConfig[] } = await response.json()
         setPersonas(data.personas)
       } catch (err) {
         setError('Failed to load personas')
@@ -65,13 +83,28 @@ function App() {
   const handleAccountSelect = (username: string) => {
     const persona = personas.find(p => p.twitterUsername === username)
     if (persona) {
+      const anthropicKey = APIKeyManager.getKey('anthropic');
+      if (!anthropicKey) {
+        setError('Please set up your API keys to start chatting');
+        return;
+      }
+
       setSelectedAccount(username)
+      const aiProvider = new AnthropicAPI(anthropicKey)
       conversationRef.current = new PersonaConversation(
-        import.meta.env.VITE_ANTHROPIC_API_KEY,
+        aiProvider,
         persona,
         DEFAULT_CONFIG
       )
-      setMessages([])
+      
+      if (conversationRef.current) {
+        const conversationMessages = conversationRef.current.getMessages();
+        const uiMessages = convertToUIMessages(conversationMessages);
+        setMessages(uiMessages);
+      } else {
+        setMessages([]);
+      }
+      
       updateTokenStats()
     }
   }
@@ -81,7 +114,7 @@ function App() {
       return
     }
 
-    const userMessage: Message = {
+    const userMessage: UIMessage = {
       content: inputMessage,
       isUser: true,
       timestamp: new Date()
@@ -93,7 +126,7 @@ function App() {
 
     try {
       const response = await conversationRef.current.sendMessage(inputMessage)
-      const agentMessage: Message = {
+      const agentMessage: UIMessage = {
         content: response,
         isUser: false,
         timestamp: new Date(),
@@ -133,14 +166,6 @@ function App() {
     )
   }
 
-  if (error) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <p className="text-destructive">{error}</p>
-      </div>
-    )
-  }
-
   return (
     <ThemeProvider>
       <div className="flex h-screen overflow-hidden bg-background">
@@ -150,20 +175,30 @@ function App() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onPersonaSelect={handleAccountSelect}
+          onKeysChange={handleKeysChange}
           className="border-r"
         />
         <main className="flex-1">
-          <ChatContainer
-            selectedAccount={selectedAccount}
-            messages={messages}
-            inputMessage={inputMessage}
-            isSending={isSending}
-            tokenStats={tokenStats}
-            onInputChange={setInputMessage}
-            onSendMessage={handleSendMessage}
-            onClearChat={clearConversation}
-            selectedPersonaName={personas.find(p => p.twitterUsername === selectedAccount)?.name}
-          />
+          {error ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-center">
+                <p className="text-destructive mb-4">{error}</p>
+                <APIKeyDialog onKeysChange={handleKeysChange} />
+              </div>
+            </div>
+          ) : (
+            <ChatContainer
+              selectedAccount={selectedAccount}
+              messages={messages}
+              inputMessage={inputMessage}
+              isSending={isSending}
+              tokenStats={tokenStats}
+              onInputChange={setInputMessage}
+              onSendMessage={handleSendMessage}
+              onClearChat={clearConversation}
+              selectedPersonaName={personas.find(p => p.twitterUsername === selectedAccount)?.name}
+            />
+          )}
         </main>
       </div>
     </ThemeProvider>

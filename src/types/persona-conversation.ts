@@ -1,37 +1,46 @@
 import { Message } from "./message";
 import { ConversationConfig } from "./conversation-config";
 import { PersonaConfig } from "./persona-config";
-import { TokenCounter } from "./token-counter";
+import { AIProvider } from "./ai-provider";
 
 export class PersonaConversation {
-    private apiKey: string;
+    private aiProvider: AIProvider;
     private messages: Message[];
     private config: ConversationConfig;
     private totalTokens: number;
+    private personaId: string;
 
     constructor(
-        apiKey: string,
+        aiProvider: AIProvider,
         persona: PersonaConfig,
         config: ConversationConfig = {
-            maxTokens: 100000,        // Maximum number of tokens in context
-            maxMessageAge: 60,        // Maximum age of messages in minutes
-            maxMessages: 20,          // Maximum number of messages in history
-            reservedTokens: 1000      // Tokens reserved for response
+            maxTokens: 100000,
+            maxMessageAge: 60,
+            maxMessages: 20,
+            reservedTokens: 1000
         }
     ) {
-        this.apiKey = apiKey;
+        this.aiProvider = aiProvider;
         this.config = config;
         this.totalTokens = 0;
+        this.personaId = persona.twitterUsername;
 
-        const systemPrompt = this.generateSystemPrompt(persona);
-        this.messages = [{
-            role: 'system',
-            content: systemPrompt,
-            timestamp: Date.now(),
-            tokenCount: TokenCounter.estimateTokenCount(systemPrompt)
-        }];
-
-        this.totalTokens = this.messages[0].tokenCount || 0;
+        // Try to load existing conversation from localStorage
+        const savedState = this.loadState();
+        if (savedState) {
+            this.messages = savedState.messages;
+            this.totalTokens = this.aiProvider.calculateTotalTokens(this.messages);
+        } else {
+            const systemPrompt = this.generateSystemPrompt(persona);
+            this.messages = [{
+                role: 'system',
+                content: systemPrompt,
+                timestamp: Date.now(),
+                tokenCount: this.aiProvider.estimateTokenCount(systemPrompt)
+            }];
+            this.totalTokens = this.messages[0].tokenCount || 0;
+            this.saveState();
+        }
     }
 
     private generateSystemPrompt(persona: PersonaConfig): string {
@@ -53,36 +62,44 @@ export class PersonaConversation {
                 4. Refer to topics that are typical for this person`;
     }
 
-    private optimizeContext() {
-        const currentTime = Date.now();
-        const maxAge = this.config.maxMessageAge * 60 * 1000;
-
-        this.messages = this.messages.filter((msg, index) => {
-            if (index === 0) return true;
-            if (!msg.timestamp) return false;
-            return (currentTime - msg.timestamp) <= maxAge;
-        });
-
-        if (this.messages.length > this.config.maxMessages) {
-            const systemMessage = this.messages[0];
-            const recentMessages = this.messages.slice(-(this.config.maxMessages - 1));
-            this.messages = [systemMessage, ...recentMessages];
-        }
-
-        while (this.calculateTotalTokens() > (this.config.maxTokens - this.config.reservedTokens)) {
-            if (this.messages.length <= 2) break;
-            this.messages.splice(1, 1);
-        }
-
-        this.totalTokens = this.calculateTotalTokens();
+    private getStorageKey(): string {
+        return `chat_history_${this.personaId}`;
     }
 
-    private calculateTotalTokens(): number {
-        return this.messages.reduce((sum, msg) => sum + (msg.tokenCount || 0), 0);
+    private saveState(): void {
+        const state = {
+            messages: this.messages,
+            timestamp: Date.now()
+        };
+        localStorage.setItem(this.getStorageKey(), JSON.stringify(state));
+    }
+
+    private loadState(): { messages: Message[] } | null {
+        const stored = localStorage.getItem(this.getStorageKey());
+        if (!stored) return null;
+
+        try {
+            const state = JSON.parse(stored);
+            // Convert stored timestamps back to numbers if they were stringified
+            state.messages = state.messages.map((msg: Message) => ({
+                ...msg,
+                timestamp: msg.timestamp ? Number(msg.timestamp) : undefined
+            }));
+            return state;
+        } catch (error) {
+            console.error('Error loading chat history:', error);
+            return null;
+        }
+    }
+
+    private optimizeContext() {
+        this.messages = this.aiProvider.optimizeContext(this.messages, this.config);
+        this.totalTokens = this.aiProvider.calculateTotalTokens(this.messages);
+        this.saveState();
     }
 
     async sendMessage(message: string): Promise<string> {
-        const tokenCount = TokenCounter.estimateTokenCount(message);
+        const tokenCount = this.aiProvider.estimateTokenCount(message);
 
         this.messages.push({
             role: 'user',
@@ -94,50 +111,21 @@ export class PersonaConversation {
         this.optimizeContext();
 
         try {
-            const isProduction = window.location.hostname !== 'localhost';
-            const baseUrl = isProduction ? 'https://api.anthropic.com/v1' : '/v1';
-            const apiUrl = `${baseUrl}/messages`;
-            
-            const headers: Record<string, string> = {
-                'Content-Type': 'application/json',
-                'x-api-key': this.apiKey,
-                'anthropic-version': '2023-06-01',
-                'anthropic-dangerous-direct-browser-access': 'true'
-            };
-
-            const response = await fetch(apiUrl, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({
-                    model: 'claude-3-5-sonnet-20241022',
-                    max_tokens: this.config.reservedTokens,
-                    system: this.messages[0].content,
-                    messages: this.messages.slice(1).map(({ role, content }) => ({
-                        role: role === 'user' ? 'user' : 'assistant',
-                        content
-                    }))
-                })
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(`API Error: ${response.status} - ${JSON.stringify(errorData)}`);
-            }
-
-            const data = await response.json();
-            if (!data.content || !Array.isArray(data.content) || !data.content[0]?.text) {
-                throw new Error('Unexpected API response format');
-            }
-            const assistantResponse = data.content[0].text;
+            const assistantResponse = await this.aiProvider.sendMessage(
+                this.messages,
+                this.messages[0].content,
+                this.config.reservedTokens
+            );
 
             this.messages.push({
                 role: 'assistant',
                 content: assistantResponse,
                 timestamp: Date.now(),
-                tokenCount: TokenCounter.estimateTokenCount(assistantResponse)
+                tokenCount: this.aiProvider.estimateTokenCount(assistantResponse)
             });
 
             this.optimizeContext();
+            this.saveState();
 
             return assistantResponse;
         } catch (error) {
@@ -157,9 +145,14 @@ export class PersonaConversation {
         };
     }
 
+    getMessages(): Message[] {
+        return this.messages;
+    }
+
     clearHistory() {
         const systemMessage = this.messages[0];
         this.messages = [systemMessage];
-        this.totalTokens = systemMessage.tokenCount || 0;
+        this.totalTokens = this.aiProvider.calculateTotalTokens([systemMessage]);
+        localStorage.removeItem(this.getStorageKey());
     }
 }
