@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
-import './App.css'
 import { PersonaConversation } from './types/persona-conversation'
 import { ConversationConfig } from './types/conversation-config'
+import { ThemeProvider } from './components/providers/ThemeProvider'
+import { Sidebar } from './components/layout/Sidebar'
+import { ChatContainer } from './components/layout/ChatContainer'
+import { PersonaConfig } from './types/persona-config'
 
 interface Message {
   content: string
@@ -10,17 +13,8 @@ interface Message {
   accountLink?: string
 }
 
-interface Persona {
-  name: string
-  tweetExamples: string[]
-  characteristics: string[]
-  topics: string[]
-  language: string
-  twitterUsername: string
-}
-
 interface PersonasDB {
-  personas: Persona[]
+  personas: PersonaConfig[]
 }
 
 const DEFAULT_CONFIG: ConversationConfig = {
@@ -34,15 +28,13 @@ function App() {
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [tokenStats, setTokenStats] = useState({ used: 0, remaining: 0 })
-  const [personas, setPersonas] = useState<Persona[]>([])
+  const [personas, setPersonas] = useState<PersonaConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [inputMessage, setInputMessage] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [isMobileMenuVisible, setIsMobileMenuVisible] = useState(false)
   const conversationRef = useRef<PersonaConversation | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const loadPersonas = async () => {
@@ -59,10 +51,6 @@ function App() {
     }
     loadPersonas()
   }, [])
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
 
   const updateTokenStats = () => {
     if (conversationRef.current) {
@@ -85,7 +73,6 @@ function App() {
       )
       setMessages([])
       updateTokenStats()
-      setIsMobileMenuVisible(false)
     }
   }
 
@@ -122,13 +109,6 @@ function App() {
     }
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSendMessage()
-    }
-  }
-
   const clearConversation = () => {
     if (conversationRef.current) {
       conversationRef.current.clearHistory()
@@ -144,116 +124,49 @@ function App() {
 
   if (loading) {
     return (
-      <div className="app-container">
-        <div className="loading-container">
-          <div className="loading-spinner" />
-          <div>Loading conversations...</div>
+      <div className="flex h-screen items-center justify-center">
+        <div className="flex flex-col items-center gap-2">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <p className="text-muted-foreground">Loading conversations...</p>
         </div>
       </div>
-    );
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <p className="text-destructive">{error}</p>
+      </div>
+    )
   }
 
   return (
-    <div className="app-container">
-      <div className={`messages-sidebar ${isMobileMenuVisible ? 'visible' : ''}`}>
-        <div className="search-container">
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Search conversations"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+    <ThemeProvider>
+      <div className="flex h-screen overflow-hidden bg-background">
+        <Sidebar
+          personas={filteredPersonas}
+          selectedAccount={selectedAccount}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          onPersonaSelect={handleAccountSelect}
+          className="border-r"
+        />
+        <main className="flex-1">
+          <ChatContainer
+            selectedAccount={selectedAccount}
+            messages={messages}
+            inputMessage={inputMessage}
+            isSending={isSending}
+            tokenStats={tokenStats}
+            onInputChange={setInputMessage}
+            onSendMessage={handleSendMessage}
+            onClearChat={clearConversation}
+            selectedPersonaName={personas.find(p => p.twitterUsername === selectedAccount)?.name}
           />
-        </div>
-        {error ? (
-          <div className="error-message">{error}</div>
-        ) : (
-          <div className="conversation-list">
-            {filteredPersonas.map((persona) => (
-              <div
-                key={persona.twitterUsername}
-                className={`conversation-item ${selectedAccount === persona.twitterUsername ? 'active' : ''}`}
-                onClick={() => handleAccountSelect(persona.twitterUsername)}
-              >
-                <div className="account-info">
-                  <span className="account-name">{persona.name}</span>
-                  <span className="account-handle">@{persona.twitterUsername}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        </main>
       </div>
-
-      <button 
-        className="mobile-menu-button" 
-        onClick={() => setIsMobileMenuVisible(!isMobileMenuVisible)}
-      >
-        {isMobileMenuVisible ? '×' : '≡'}
-      </button>
-
-      <div className="chat-container">
-        {selectedAccount ? (
-          <>
-            <div className="chat-header">
-              <div className="account-info">
-                <span className="account-name">
-                  {personas.find(p => p.twitterUsername === selectedAccount)?.name}
-                </span>
-                <span className="account-handle">@{selectedAccount}</span>
-              </div>
-              <button className="clear-button" onClick={clearConversation}>
-                Clear chat
-              </button>
-            </div>
-
-            <div className="messages-container">
-              {messages.map((message, index) => (
-                <div key={index} className={`message ${message.isUser ? 'user' : ''}`}>
-                  <div>
-                    <div className="message-content">{message.content}</div>
-                    <div className="timestamp">
-                      {message.timestamp.toLocaleTimeString()}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {isSending && (
-                <div className="sending-indicator">
-                  Sending message...
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            <div className="input-container">
-              <textarea
-                className="message-input"
-                placeholder={isSending ? "Sending..." : "Start a new message"}
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                onKeyPress={handleKeyPress}
-                disabled={isSending}
-              />
-            </div>
-            <div className="token-stats-footer">
-              <div className="token-stats-item">
-                <span className="token-stats-label">Used:</span>
-                <span>{tokenStats.used.toLocaleString()} tokens</span>
-              </div>
-              <div className="token-stats-item">
-                <span className="token-stats-label">Remaining:</span>
-                <span>{tokenStats.remaining.toLocaleString()} tokens</span>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="chat-header">
-            <span>Select a conversation to start chatting</span>
-          </div>
-        )}
-      </div>
-    </div>
+    </ThemeProvider>
   )
 }
 

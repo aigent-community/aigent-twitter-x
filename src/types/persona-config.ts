@@ -3,4 +3,6 @@ export interface PersonaConfig {
   tweetExamples: string[];
   characteristics: string[];
   topics: string[];
+  language: string;
+  twitterUsername: string;
 }
