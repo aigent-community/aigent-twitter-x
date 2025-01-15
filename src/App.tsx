@@ -59,8 +59,17 @@ function App() {
       try {
         const response = await fetch('/aigent-twitter-x/personas-db.json')
         if (!response.ok) throw new Error('Failed to load personas')
-        const data: { personas: PersonaConfig[] } = await response.json()
-        setPersonas(data.personas)
+        const data: { personaFiles: string[] } = await response.json()
+        
+        const loadedPersonas = await Promise.all(
+          data.personaFiles.map(async (file) => {
+            const personaResponse = await fetch(`/aigent-twitter-x/${file}`)
+            if (!personaResponse.ok) throw new Error(`Failed to load persona: ${file}`)
+            return personaResponse.json()
+          })
+        )
+        
+        setPersonas(loadedPersonas)
       } catch (err) {
         setError('Failed to load personas')
       } finally {
