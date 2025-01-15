@@ -2,11 +2,41 @@ import { Message } from '../types/message';
 import { AIProvider } from '../types/ai-provider';
 import { ConversationConfig } from '../types/conversation-config';
 
+interface AnthropicModel {
+    name: string;
+    contextWindow: number;
+}
+
 export class AnthropicAPI implements AIProvider {
     private apiKey: string;
+    private model: string;
+    private static modelLimits: Map<string, number> = new Map();
+    private static readonly MODELS: AnthropicModel[] = [
+        { name: 'claude-3-opus-20240229', contextWindow: 8192 },
+        { name: 'claude-3-sonnet-20240229', contextWindow: 8192 },
+        { name: 'claude-2.1', contextWindow: 8192 }
+    ];
 
-    constructor(apiKey: string) {
+    constructor(apiKey: string, model: string = 'claude-3-sonnet-20240229') {
         this.apiKey = apiKey;
+        this.model = model;
+    }
+
+    async getModelLimit(model: string): Promise<number> {
+        if (AnthropicAPI.modelLimits.has(model)) {
+            return AnthropicAPI.modelLimits.get(model)!;
+        }
+
+        // Anthropic doesn't provide an API endpoint for model limits yet
+        // Using predefined values from their documentation
+        const modelData = AnthropicAPI.MODELS.find(m => m.name === model);
+        if (!modelData) {
+            // Conservative default if model not found
+            return 8192;
+        }
+
+        AnthropicAPI.modelLimits.set(model, modelData.contextWindow);
+        return modelData.contextWindow;
     }
 
     async sendMessage(messages: Message[], systemPrompt: string, maxTokens: number): Promise<string> {
@@ -83,5 +113,14 @@ export class AnthropicAPI implements AIProvider {
         // Claude-specific token estimation
         // Rough estimate: 1 token ≈ 4 characters for English text
         return Math.ceil(text.length / 4);
+    }
+
+    async getContextStats(messages: Message[], config: ConversationConfig) {
+        const totalTokens = this.calculateTotalTokens(messages);
+        const modelLimit = await this.getModelLimit(this.model);
+        return {
+            totalTokens,
+            remainingTokenCapacity: Math.max(0, modelLimit - config.reservedTokens - totalTokens)
+        };
     }
 }

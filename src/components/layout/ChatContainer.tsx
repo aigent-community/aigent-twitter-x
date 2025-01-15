@@ -4,13 +4,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import { useRef, useEffect } from "react"
-
-interface Message {
-  content: string
-  isUser: boolean
-  timestamp: Date
-  accountLink?: string
-}
+import { Message } from '../../types/ui-message';
+import { AIProviderConfig } from '../../types/ai-provider';
 
 interface ChatContainerProps {
   selectedAccount: string | null
@@ -26,6 +21,7 @@ interface ChatContainerProps {
   onClearChat: () => void
   className?: string
   selectedPersonaName?: string
+  aiConfig: AIProviderConfig
 }
 
 export function ChatContainer({
@@ -107,7 +103,6 @@ export function ChatContainer({
         />
         <div className="flex justify-between text-sm text-muted-foreground">
           <div>Used: {tokenStats.used.toLocaleString()} tokens</div>
-          <div>Remaining: {tokenStats.remaining.toLocaleString()} tokens</div>
         </div>
       </div>
     </div>

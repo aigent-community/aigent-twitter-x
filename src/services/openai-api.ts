@@ -2,11 +2,57 @@ import { Message } from '../types/message';
 import { AIProvider } from '../types/ai-provider';
 import { ConversationConfig } from '../types/conversation-config';
 
+interface OpenAIModel {
+    id: string;
+    context_window: number;
+}
+
 export class OpenAIAPI implements AIProvider {
     private apiKey: string;
+    private model: string;
+    private static modelLimits: Map<string, number> = new Map();
 
-    constructor(apiKey: string) {
+    constructor(apiKey: string, model: string = 'gpt-4-turbo-preview') {
         this.apiKey = apiKey;
+        this.model = model;
+    }
+
+    async getModelLimit(): Promise<number> {
+        if (OpenAIAPI.modelLimits.has(this.model)) {
+            return OpenAIAPI.modelLimits.get(this.model)!;
+        }
+
+        try {
+            const response = await fetch('https://api.openai.com/v1/models', {
+                headers: {
+                    'Authorization': `Bearer ${this.apiKey}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch models: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            const modelData = data.data.find((m: OpenAIModel) => m.id === this.model);
+            
+            if (!modelData) {
+                // Default fallback values if model not found
+                const fallbackLimits: { [key: string]: number } = {
+                    'gpt-4-turbo-preview': 128000,
+                    'gpt-4': 8192,
+                    'gpt-3.5-turbo': 4096
+                };
+                return fallbackLimits[this.model] || 4096;
+            }
+
+            OpenAIAPI.modelLimits.set(this.model, modelData.context_window);
+            return modelData.context_window;
+        } catch (error) {
+            console.error('Error fetching model limits:', error);
+            // Return conservative default if API call fails
+            return 4096;
+        }
     }
 
     async sendMessage(messages: Message[], systemPrompt: string, maxTokens: number): Promise<string> {
@@ -29,7 +75,7 @@ export class OpenAIAPI implements AIProvider {
             method: 'POST',
             headers,
             body: JSON.stringify({
-                model: 'gpt-4-turbo-preview',
+                model: this.model,
                 messages: formattedMessages,
                 max_tokens: maxTokens
             })
@@ -76,13 +122,40 @@ export class OpenAIAPI implements AIProvider {
     }
 
     calculateTotalTokens(messages: Message[]): number {
-        return messages.reduce((sum, msg) => sum + (msg.tokenCount || this.estimateTokenCount(msg.content)), 0);
+        // Calculate tokens for messages array structure (3 tokens per message)
+        const messageStructureTokens = messages.length * 3;
+        
+        // Calculate tokens for message content
+        const contentTokens = messages.reduce((sum, msg) => {
+            // If token count is already calculated, use it
+            if (msg.tokenCount !== undefined) return sum + msg.tokenCount;
+            
+            // Otherwise estimate based on content
+            const roleTokens = msg.role.length;  // Count tokens for role
+            const contentTokens = this.estimateTokenCount(msg.content);
+            return sum + roleTokens + contentTokens;
+        }, 0);
+
+        return messageStructureTokens + contentTokens;
     }
 
     estimateTokenCount(text: string): number {
-        // GPT-4 specific token estimation
-        // Rough estimate: 1 token ≈ 4 characters for English text
-        // Note: This is a simplified estimation. For production, consider using tiktoken
-        return Math.ceil(text.length / 4);
+        if (!text) return 0;
+        // More accurate token estimation for GPT models
+        // Average of 4 characters per token for English text
+        // Add extra tokens for spaces and punctuation
+        const words = text.trim().split(/\s+/);
+        const spaceTokens = words.length - 1;
+        const characterTokens = Math.ceil(text.length / 4);
+        return characterTokens + spaceTokens;
+    }
+
+    async getContextStats(messages: Message[], config: ConversationConfig) {
+        const totalTokens = this.calculateTotalTokens(messages);
+        const modelLimit = await this.getModelLimit();
+        return {
+            totalTokens,
+            remainingTokenCapacity: Math.max(0, modelLimit - config.reservedTokens - totalTokens)
+        };
     }
 } 
