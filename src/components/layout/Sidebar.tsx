@@ -1,86 +1,128 @@
-import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Card } from "@/components/ui/card"
-import { ThemeToggle } from "@/components/ui/theme-toggle"
-import { Button } from "@/components/ui/button"
-import { KeyRound } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { APIKeyDialog } from "@/components/ui/api-key-dialog"
-import { useTheme } from "@/components/providers/ThemeProvider"
+import { ReactNode } from 'react';
+import { PersonaConfig } from '../../types/persona-config';
+import { APIKeyDialog } from '../ui/api-key-dialog';
+import { AIProviderConfig } from '../../types/ai-provider';
+import { ThemeToggle } from '../ui/theme-toggle';
+import { KeyRound } from 'lucide-react';
+
+interface ActiveConversation {
+    id: string;
+    persona: PersonaConfig;
+    aiConfig: AIProviderConfig;
+    messages: any[];
+}
 
 interface SidebarProps {
-  personas: Array<{
-    name: string
-    twitterUsername: string
-  }>
-  selectedAccount: string | null
-  searchQuery: string
-  onSearchChange: (value: string) => void
-  onPersonaSelect: (username: string) => void
-  onKeysChange?: () => void
-  className?: string
+    personas: PersonaConfig[];
+    activeConversations: ActiveConversation[];
+    selectedConversationId: string | null;
+    searchQuery: string;
+    onSearchChange: (query: string) => void;
+    onPersonaSelect: (username: string) => void;
+    onConversationSelect: (id: string) => void;
+    onConversationDelete: (id: string) => void;
+    onKeysChange: () => void;
+    className?: string;
+    children?: ReactNode;
 }
 
 export function Sidebar({
-  personas,
-  selectedAccount,
-  searchQuery,
-  onSearchChange,
-  onPersonaSelect,
-  onKeysChange,
-  className
+    personas,
+    activeConversations,
+    selectedConversationId,
+    searchQuery,
+    onSearchChange,
+    onPersonaSelect,
+    onConversationSelect,
+    onConversationDelete,
+    onKeysChange,
+    className = '',
+    children
 }: SidebarProps) {
-  const { theme, setTheme } = useTheme()
+    return (
+        <aside className={`w-80 flex flex-col bg-background ${className}`}>
+            <div className="p-4 border-b">
+                <input
+                    type="text"
+                    placeholder="Search personas..."
+                    value={searchQuery}
+                    onChange={(e) => onSearchChange(e.target.value)}
+                    className="input input-bordered w-full bg-background text-foreground placeholder:text-muted-foreground"
+                />
+            </div>
 
-  return (
-    <div className={cn("pb-12 w-full md:w-80", className)}>
-      <div className="space-y-4 py-4">
-        <div className="px-3 py-2">
-          <div className="flex items-center justify-between gap-2">
-            <Input
-              placeholder="Search..."
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              className="h-9"
-            />
-            <APIKeyDialog onKeysChange={onKeysChange}>
-              <Button variant="ghost" size="icon" className="h-9 w-9" title="Manage API Keys">
-                <KeyRound className="h-4 w-4" />
-              </Button>
-            </APIKeyDialog>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              className="h-9 w-9" 
-              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-              title={`Switch to ${theme === "light" ? "dark" : "light"} theme`}
-            >
-              <ThemeToggle />
-            </Button>
-          </div>
-        </div>
-        <ScrollArea className="h-[calc(100vh-8rem)]">
-          <div className="space-y-1 p-2">
-            {personas.map((persona) => (
-              <Card
-                key={persona.twitterUsername}
-                className={cn(
-                  "p-3 cursor-pointer hover:bg-accent",
-                  selectedAccount === persona.twitterUsername && "bg-accent"
-                )}
-                onClick={() => onPersonaSelect(persona.twitterUsername)}
-              >
-                <div className="flex flex-col gap-1">
-                  <span className="font-medium">{persona.name}</span>
-                  <span className="text-sm text-muted-foreground">
-                    @{persona.twitterUsername}
-                  </span>
+            <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="p-4 flex flex-col min-h-0">
+                    <h2 className="font-semibold mb-2 text-foreground">Active Conversations</h2>
+                    <div className="overflow-y-auto flex-1">
+                        {activeConversations.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No active conversations</p>
+                        ) : (
+                            <ul className="space-y-2">
+                                {activeConversations.map((conv) => (
+                                    <li
+                                        key={conv.id}
+                                        className={`p-2 rounded cursor-pointer hover:bg-accent ${
+                                            selectedConversationId === conv.id ? 'bg-accent' : ''
+                                        }`}
+                                    >
+                                        <div 
+                                            className="flex justify-between items-start"
+                                            onClick={() => onConversationSelect(conv.id)}
+                                        >
+                                            <div>
+                                                <div className="font-medium text-foreground">{conv.persona.name}</div>
+                                                <div className="text-sm text-muted-foreground">
+                                                    {conv.aiConfig.type === 'anthropic' ? 'Anthropic' : 'OpenAI'} - {conv.aiConfig.model}
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onConversationDelete(conv.id);
+                                                }}
+                                                className="text-muted-foreground hover:text-destructive"
+                                                title="Delete conversation"
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
                 </div>
-              </Card>
-            ))}
-          </div>
-        </ScrollArea>
-      </div>
-    </div>
-  )
+
+                <div className="p-4 border-t flex flex-col min-h-0">
+                    <h2 className="font-semibold mb-2 text-foreground">Available Personas</h2>
+                    <div className="overflow-y-auto flex-1">
+                        <ul className="space-y-2">
+                            {personas.map((persona) => (
+                                <li
+                                    key={persona.twitterUsername}
+                                    className="p-2 rounded cursor-pointer hover:bg-accent"
+                                    onClick={() => onPersonaSelect(persona.twitterUsername)}
+                                >
+                                    <div className="font-medium text-foreground">{persona.name}</div>
+                                    <div className="text-sm text-muted-foreground">@{persona.twitterUsername}</div>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div className="p-4 border-t flex gap-2 items-center">
+                <APIKeyDialog onKeysChange={onKeysChange}>
+                    <button className="btn btn-square btn-ghost flex items-center justify-center" title="Configure API Keys">
+                        <KeyRound className="h-5 w-5" />
+                    </button>
+                </APIKeyDialog>
+                <ThemeToggle />
+            </div>
+
+            {children}
+        </aside>
+    );
 } 
